@@ -1,0 +1,8 @@
+pyspark>=3.5.1
+torch>=2.6.0
+torchvision
+numpy
+pandas<3.0.0
+pyarrow>=18.0.0
+scikit-learn
+tqdm
