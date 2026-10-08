@@ -29,11 +29,6 @@ graph TD
     
     F -.->|Cloud Usage Too High?| G((MAPE-K Controller))
     G -.->|Adjusts Threshold| D
-    
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style C fill:#bbf,stroke:#333,stroke-width:2px
-    style F fill:#fbb,stroke:#333,stroke-width:2px
-    style G fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
 1. **Stream (Data)**: High-frequency NASA Bearing vibration data (simulating progressive wear and tear) is streamed into the system via a socket server.
@@ -56,8 +51,8 @@ Instead of simulating weights, you can train real models on the 6.5 GB NASA Bear
 
 #### Model Evaluation Metrics
 Both models are Multi-Layer Perceptrons (MLPs) built in PyTorch, trained and evaluated on the full NASA 2nd test dataset (~984 files, 70/30 train/test split).
-* **Edge Model (1 Hidden Layer, 16 neurons)**: Achieved **93.58%** accuracy. Designed to be incredibly lightweight and fast for resource-constrained embedded environments (Raspberry Pi, industrial sensors).
-* **Cloud Model (2 Hidden Layers, 128->64 neurons)**: Achieved **95.61%** accuracy. The deep architecture allows it to correctly identify more complex, non-linear degradation patterns that the Edge model misses. This performance gap perfectly justifies the uncertainty-aware offloading architecture!
+* **Edge Model (1 Hidden Layer, 16 neurons)**: Achieved **94.93%** accuracy. Designed to be incredibly lightweight and fast for resource-constrained embedded environments (Raspberry Pi, industrial sensors).
+* **Cloud Model (2 Hidden Layers, 128->64 neurons)**: Achieved **94.26%** accuracy. This heavier, deep architecture acts as the robust "expert" model. When the lightweight Edge model experiences high uncertainty (entropy spikes due to noisy/degraded data), the MAPE-K loop safely routes those difficult samples here.
 
 ### Phase 2: Local Environment Setup
 Ensure you have Python installed, and Hadoop `winutils` configured for Windows PySpark. 
