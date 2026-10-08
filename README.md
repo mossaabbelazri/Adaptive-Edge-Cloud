@@ -17,6 +17,25 @@ This project demonstrates dynamic resource allocation and reliability in next-ge
 
 ## 🏗️ Architecture Explained
 
+```mermaid
+graph TD
+    A[NASA Bearing Sensor] -->|Streams Vibration Data| B(PySpark Micro-Batches)
+    B --> C{Edge AI PyTorch}
+    
+    C -->|Calculates Entropy| D[Uncertainty Monitor]
+    
+    D -->|Entropy < Threshold| E[Process Locally on Edge]
+    D -->|Entropy > Threshold| F[Offload to Heavy Cloud AI]
+    
+    F -.->|Cloud Usage Too High?| G((MAPE-K Controller))
+    G -.->|Adjusts Threshold| D
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style C fill:#bbf,stroke:#333,stroke-width:2px
+    style F fill:#fbb,stroke:#333,stroke-width:2px
+    style G fill:#bfb,stroke:#333,stroke-width:2px
+```
+
 1. **Stream (Data)**: High-frequency NASA Bearing vibration data (simulating progressive wear and tear) is streamed into the system via a socket server.
 2. **PySpark Pipeline**: Ingests and micro-batches the data stream.
 3. **Edge Inference**: A lightweight PyTorch model processes all incoming data.

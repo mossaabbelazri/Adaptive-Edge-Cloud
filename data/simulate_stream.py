@@ -4,18 +4,29 @@ import json
 import random
 import math
 
-def generate_bearing_vibration(base_noise, wear_factor):
+def generate_summary_features(base_noise=0.1, wear_factor=0.0):
     """
-    Simulates a vibration signal for a bearing. 
-    As the wear_factor increases, the amplitude and noise increase.
+    Simulates the statistical features (RMS, Peak, Variance) 
+    extracted from the raw vibration data, exactly matching 
+    what the Neural Network was trained on.
     """
-    # Simulate a 2000 RPM (approx 33.3 Hz) base frequency + harmonics
-    t = time.time()
-    signal = math.sin(2 * math.pi * 33.3 * t) + 0.5 * math.sin(2 * math.pi * 66.6 * t)
+    # Base values for a healthy bearing
+    rms_base = 0.07
+    peak_base = 0.1
+    var_base = 0.005
     
-    # Add noise based on wear and tear
-    noise = random.gauss(0, base_noise + wear_factor)
-    return signal * (1.0 + wear_factor) + noise
+    # Add wear factor (noise and amplitude increase)
+    rms = abs(random.gauss(rms_base + (wear_factor * 0.1), base_noise + wear_factor))
+    peak = abs(random.gauss(peak_base + (wear_factor * 0.3), base_noise + wear_factor))
+    var = abs(random.gauss(var_base + (wear_factor * 0.05), base_noise + wear_factor))
+    
+    # Match the exact 10 features extracted in the Colab training script
+    return [
+        rms, peak, var, 
+        rms*1.1, peak*0.9, var*1.05, 
+        rms*0.9, peak*1.1, var*0.95, 
+        rms
+    ]
 
 def start_stream_server(host='localhost', port=9999):
     """
@@ -41,22 +52,9 @@ def start_stream_server(host='localhost', port=9999):
     try:
         batch_count = 0
         while True:
-            # We have 4 bearings, we generate synthetic features for each (e.g., 2 axes each = 8 features) + 2 metadata features = 10 total
-            # Bearing 1 is healthy
-            # Bearing 2 is degrading over time
-            
-            b1_vib = generate_bearing_vibration(base_noise=0.1, wear_factor=0.0)
-            b2_vib = generate_bearing_vibration(base_noise=0.1, wear_factor=current_wear)
-            
-            # Fill the 10 features expected by our PyTorch model
-            features = [
-                b1_vib, b1_vib * 0.9,  # Bearing 1 (X, Y)
-                b2_vib, b2_vib * 1.1,  # Bearing 2 (X, Y) - Degrading
-                generate_bearing_vibration(0.1, 0.0), generate_bearing_vibration(0.1, 0.0), # Bearing 3
-                generate_bearing_vibration(0.1, 0.0), generate_bearing_vibration(0.1, 0.0), # Bearing 4
-                2000.0 + random.uniform(-10, 10), # RPM 
-                6000.0 + random.uniform(-50, 50)  # Load
-            ]
+            # The Colab models were trained on the statistical features of a failing bearing.
+            # We generate those exact 10 features here, increasing the wear over time.
+            features = generate_summary_features(base_noise=0.01, wear_factor=current_wear)
             
             data = {
                 "timestamp": time.time(),
