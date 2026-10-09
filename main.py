@@ -41,5 +41,8 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print("\nStopping pipeline...")
     finally:
-        server_process.terminate()
+        if server_process.is_alive():
+            server_process.terminate()
+            server_process.join(timeout=1)
         print("System shutdown complete.")
+

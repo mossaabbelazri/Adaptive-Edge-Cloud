@@ -128,7 +128,13 @@ def start_pipeline():
         .start()
 
     print("Pipeline running. Awaiting data...")
-    query.awaitTermination()
+    try:
+        query.awaitTermination()
+    except KeyboardInterrupt:
+        print("\nStopping streaming query...")
+        query.stop()
+        spark.stop()
+
 
 if __name__ == "__main__":
     start_pipeline()
