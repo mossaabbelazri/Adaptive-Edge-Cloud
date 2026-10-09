@@ -5,8 +5,8 @@
 # 1. Open Google Colab (colab.research.google.com)
 # 2. Copy and paste this entire script into a cell.
 # 3. Add your kaggle.json credentials to download the dataset.
-# 4. After training, download the 'edge_model.pth' and 'cloud_model.pth' 
-#    files and place them in your local 'checkpoints' folder.
+# 4. After training, download 'edge_model.pth', 'cloud_model.pth', and 'scaler.pth'
+#    and place them in your local 'checkpoints' folder.
 
 import os
 import glob
@@ -74,11 +74,18 @@ for i, file in enumerate(sampled_files):
 X = np.array(features)
 y = np.array(labels)
 
+# --- 2.5 Feature Standardization (StandardScaler on Train only) ---
+from sklearn.preprocessing import StandardScaler
+
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-X_train_t = torch.tensor(X_train, dtype=torch.float32)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+X_train_t = torch.tensor(X_train_scaled, dtype=torch.float32)
 y_train_t = torch.tensor(y_train, dtype=torch.long)
-X_test_t = torch.tensor(X_test, dtype=torch.float32)
+X_test_t = torch.tensor(X_test_scaled, dtype=torch.float32)
 y_test_t = torch.tensor(y_test, dtype=torch.long)
 
 train_loader = DataLoader(TensorDataset(X_train_t, y_train_t), batch_size=32, shuffle=True)
@@ -97,31 +104,40 @@ class CloudModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.fc1 = nn.Linear(10, 128)
+        self.bn1 = nn.BatchNorm1d(128)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(0.1)
         self.fc2 = nn.Linear(128, 64)
+        self.bn2 = nn.BatchNorm1d(64)
         self.relu2 = nn.ReLU()
         self.dropout2 = nn.Dropout(0.1)
         self.fc3 = nn.Linear(64, 3)
     def forward(self, x):
-        x = self.dropout1(self.relu1(self.fc1(x)))
-        x = self.dropout2(self.relu2(self.fc2(x)))
+        x = self.fc1(x)
+        if x.shape[0] > 1 or not self.training:
+            x = self.bn1(x)
+        x = self.dropout1(self.relu1(x))
+        x = self.fc2(x)
+        if x.shape[0] > 1 or not self.training:
+            x = self.bn2(x)
+        x = self.dropout2(self.relu2(x))
         return self.fc3(x)
 
 edge_model = EdgeModel()
 cloud_model = CloudModel()
 
-# Compute class weights to counteract heavy class imbalance (Healthy: 700, Degrading: 200, Failing: 84)
+# Smoothed inverse-frequency class weights (sqrt scaling avoids over-penalizing majority class)
 class_counts = np.bincount(y_train)
-weights = len(y_train) / (len(class_counts) * class_counts.astype(np.float32))
+weights = np.sqrt(len(y_train) / (len(class_counts) * class_counts.astype(np.float32)))
 class_weights = torch.tensor(weights, dtype=torch.float32)
 
 # --- 4. Training Loop ---
 def train_model(model, name, epochs=100, use_scheduler=False, lr=0.005):
-    # Cost-sensitive classification using inverse-frequency class weights
+    # Cost-sensitive classification using smoothed inverse-frequency class weights
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs) if use_scheduler else None
+    
     
     print(f"\nTraining {name}...")
     for epoch in range(epochs):
@@ -207,8 +223,10 @@ with torch.no_grad():
     print(f"Average Prediction Set Size: {avg_set_size:.2f} classes")
     print(f"Conformal Quantile Threshold (q_hat): {q_hat.item():.4f}")
 
-# --- 7. Save Weights ---
+# --- 7. Save Weights & Calibration Artefacts ---
 torch.save(edge_model.state_dict(), 'edge_model.pth')
 torch.save(cloud_model.state_dict(), 'cloud_model.pth')
-print("\nTraining Complete! Download 'edge_model.pth' and 'cloud_model.pth' to your local machine.")
+torch.save({'mean': scaler.mean_, 'scale': scaler.scale_}, 'scaler.pth')
+print("\nTraining Complete! Download 'edge_model.pth', 'cloud_model.pth', and 'scaler.pth' to your local 'checkpoints/' folder.")
+
 

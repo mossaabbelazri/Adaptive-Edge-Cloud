@@ -28,6 +28,14 @@ if os.path.exists('checkpoints/edge_model.pth'):
 if os.path.exists('checkpoints/cloud_model.pth'):
     cloud_model.load_state_dict(torch.load('checkpoints/cloud_model.pth'))
 
+# Load optional standard scaler from training
+scaler_data = None
+if os.path.exists('checkpoints/scaler.pth'):
+    try:
+        scaler_data = torch.load('checkpoints/scaler.pth', map_location='cpu')
+    except Exception as e:
+        scaler_data = None
+
 def process_batch(df, epoch_id):
     """
     Function applied to each micro-batch in the stream.
@@ -46,10 +54,19 @@ def process_batch(df, epoch_id):
     import numpy as np
     X_tensor = torch.tensor(np.array(features_list), dtype=torch.float32)
 
+    # Standardize features if scaler weights are present
+    if scaler_data is not None:
+        s_mean = torch.tensor(scaler_data['mean'], dtype=torch.float32)
+        s_scale = torch.tensor(scaler_data['scale'], dtype=torch.float32)
+        X_eval = (X_tensor - s_mean) / (s_scale + 1e-7)
+    else:
+        X_eval = X_tensor
+
     # 1. Edge Inference (All data)
     with torch.no_grad():
-        edge_logits = edge_model(X_tensor)
+        edge_logits = edge_model(X_eval)
         edge_entropy = calculate_entropy(edge_logits, features=X_tensor)
+
 
     # 2. Uncertainty Evaluation based on dynamic threshold
     uncertain_mask = is_uncertain(edge_entropy, threshold=controller.threshold)
@@ -65,7 +82,7 @@ def process_batch(df, epoch_id):
 
     # 3. Cloud Offloading (Only for uncertain data)
     if len(uncertain_indices) > 0:
-        uncertain_data = X_tensor[uncertain_indices]
+        uncertain_data = X_eval[uncertain_indices]
         with torch.no_grad():
             cloud_logits = cloud_model(uncertain_data)
         print(f"Batch {epoch_id}: Offloaded {len(uncertain_indices)}/{total_samples} samples to Cloud.")
