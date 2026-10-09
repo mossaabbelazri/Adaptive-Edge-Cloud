@@ -107,11 +107,8 @@ python main.py
 * As the bearing's `wear level` increases over time, the data becomes chaotic and impulsive (heavy-tailed kurtosis shift).
 * The Edge model detects distribution shift and begins offloading uncertain samples to the Cloud.
 * The **MAPE-K Controller** actively adjusts the threshold (e.g., `Threshold adjusted from 0.80 to 0.85`) to balance network ingestion capacity.
-
-## 🔬 Motivation: REGAIN-AI (DTU Compute)
-This research prototype directly mirrors the core mission of the **REGAIN-AI** initiative at DTU Compute: designing certifiable, resource-aware, and uncertainty-bounded AI systems for edge-cloud distributed infrastructures.
-
 ## 📜 License
 MIT License
+
 
 
