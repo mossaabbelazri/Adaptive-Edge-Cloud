@@ -98,20 +98,30 @@ class CloudModel(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(10, 128)
         self.relu1 = nn.ReLU()
+        self.dropout1 = nn.Dropout(0.1)
         self.fc2 = nn.Linear(128, 64)
         self.relu2 = nn.ReLU()
+        self.dropout2 = nn.Dropout(0.1)
         self.fc3 = nn.Linear(64, 3)
     def forward(self, x):
-        return self.fc3(self.relu2(self.fc2(self.relu1(self.fc1(x)))))
+        x = self.dropout1(self.relu1(self.fc1(x)))
+        x = self.dropout2(self.relu2(self.fc2(x)))
+        return self.fc3(x)
 
 edge_model = EdgeModel()
 cloud_model = CloudModel()
 
+# Compute class weights to counteract heavy class imbalance (Healthy: 700, Degrading: 200, Failing: 84)
+class_counts = np.bincount(y_train)
+weights = len(y_train) / (len(class_counts) * class_counts.astype(np.float32))
+class_weights = torch.tensor(weights, dtype=torch.float32)
+
 # --- 4. Training Loop ---
-def train_model(model, name, epochs=100):
-    criterion = nn.CrossEntropyLoss()
-    # Using Adam with weight decay for better generalization
-    optimizer = optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-4)
+def train_model(model, name, epochs=100, use_scheduler=False, lr=0.005):
+    # Cost-sensitive classification using inverse-frequency class weights
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs) if use_scheduler else None
     
     print(f"\nTraining {name}...")
     for epoch in range(epochs):
@@ -124,14 +134,17 @@ def train_model(model, name, epochs=100):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
+        if scheduler:
+            scheduler.step()
         if (epoch+1) % 20 == 0:
             print(f"Epoch {epoch+1}/{epochs} - Loss: {total_loss/len(train_loader):.4f}")
 
-train_model(edge_model, "Edge Model", epochs=100)
-train_model(cloud_model, "Cloud Model", epochs=150) # Cloud trains longer/deeper
+train_model(edge_model, "Edge Model", epochs=100, lr=0.005)
+train_model(cloud_model, "Cloud Model", epochs=150, use_scheduler=True, lr=0.002) # Optimized Oracle
 
 # --- 5. Evaluation (Accuracy & Confusion Matrix) ---
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+import torch.nn.functional as F
 
 def evaluate_model(model, name):
     model.eval()
@@ -155,7 +168,47 @@ def evaluate_model(model, name):
 evaluate_model(edge_model, "Edge Model")
 evaluate_model(cloud_model, "Cloud Model")
 
-# --- 6. Save Weights ---
+# --- 6. Conformal Prediction Coverage Evaluation (Vovk et al. 2005) ---
+print(f"\n{'='*40}")
+print(" Conformal Prediction Coverage Evaluation (Alpha=0.05)")
+print(f"{'='*40}")
+with torch.no_grad():
+    cloud_model.eval()
+    probs = F.softmax(cloud_model(X_test_t), dim=1)
+    
+    # Split-conformal calibration on test set (50% calib, 50% eval)
+    n_test = len(y_test_t)
+    cal_size = n_test // 2
+    
+    cal_probs = probs[:cal_size]
+    cal_y = y_test_t[:cal_size]
+    
+    eval_probs = probs[cal_size:]
+    eval_y = y_test_t[cal_size:]
+    
+    # Non-conformity score: s_i = 1 - p(y_true)
+    cal_scores = 1.0 - cal_probs[torch.arange(cal_size), cal_y]
+    
+    # Compute conformal quantile (1 - alpha = 0.95)
+    alpha = 0.05
+    q_val = np.ceil((cal_size + 1) * (1 - alpha)) / cal_size
+    q_hat = torch.quantile(cal_scores, min(1.0, float(q_val)))
+    
+    # Prediction sets for evaluation samples: {y : 1 - p(y) <= q_hat}
+    eval_scores = 1.0 - eval_probs
+    pred_sets = eval_scores <= q_hat
+    
+    # Empirical coverage check
+    covered = pred_sets[torch.arange(len(eval_y)), eval_y].float().mean().item()
+    avg_set_size = pred_sets.sum(dim=1).float().mean().item()
+    
+    print(f"Target Coverage: {(1 - alpha)*100:.1f}%")
+    print(f"Empirical Coverage: {covered*100:.2f}%")
+    print(f"Average Prediction Set Size: {avg_set_size:.2f} classes")
+    print(f"Conformal Quantile Threshold (q_hat): {q_hat.item():.4f}")
+
+# --- 7. Save Weights ---
 torch.save(edge_model.state_dict(), 'edge_model.pth')
 torch.save(cloud_model.state_dict(), 'cloud_model.pth')
 print("\nTraining Complete! Download 'edge_model.pth' and 'cloud_model.pth' to your local machine.")
+
