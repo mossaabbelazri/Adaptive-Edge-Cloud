@@ -47,20 +47,40 @@ Instead of simulating weights, you can train real models on the 6.5 GB NASA Bear
 1. Open [Google Colab](https://colab.research.google.com/).
 2. Copy the code from `NASA_Bearing_Training.py` into a new notebook and run it. 
 3. *Note: It uses `kagglehub` to securely and automatically download the dataset—no API keys required!*
-4. Once training completes, download `edge_model.pth` and `cloud_model.pth` and place them in your local `checkpoints/` folder.
+4. Once training completes, download `edge_model.pth`, `cloud_model.pth`, and `scaler.pth` and place them in your local `checkpoints/` folder.
 
 #### Model Evaluation Metrics
-Both models are Multi-Layer Perceptrons (MLPs) built in PyTorch, trained and evaluated on the full NASA 2nd test dataset (~984 files, 70/30 train/test split).
+Both models are Multi-Layer Perceptrons (MLPs) built in PyTorch, trained and evaluated on the full NASA 2nd test dataset (~984 files, 70/30 train/test split) using standardized input features.
 
-| Metric / Dimension | Lightweight Edge Model (16 units) | Cloud Oracle Model (128 $\to$ 64 units) | Industrial / Theoretical Rationale |
+| Metric / Dimension | Lightweight Edge Model (16 units) | Heavy Cloud Model (128 $\to$ 64 units) | Industrial Rationale |
 | :--- | :--- | :--- | :--- |
-| **Model Footprint** | ~3.3 KB ($O(1)$ embedded inference) | ~42.5 KB (High capacity + Dropout) | Edge-first deployment on constrained MCU |
-| **Overall Accuracy** | 94.93% | **96.5% - 98.0%** (weighted loss) | Dominated by majority class (74% Healthy) |
-| **Degrading Class Recall** | 91.1% | **96.4%** | Early fault interception before damage spreads |
-| **Failing Class Recall** | 66.7% | **71.4% $\to$ 85%+** | Safety-critical: Minimizes asymmetric Type II risk |
+| **Model Footprint** | ~3.3 KB | ~42.5 KB | Edge-first deployment on constrained MCU vs heavy cloud capacity |
+| **Overall Accuracy** | **93.58%** | **91.55%** | Evaluated on full test set (296 samples, 74% Healthy) |
+| **Healthy Recall** | 97.0% (212/219) | **100.0% (219/219)** | Cloud eliminates false alarms on normal operation |
+| **Degrading Recall** | 89.0% (50/56) | 61.0% (34/56) | Cloud proactively alerts on late-stage degradation |
+| **Failing Recall (Critical Faults)** | 71.0% (15/21) | **86.0% (18/21)** 🚀 | Cloud catches 86% of catastrophic breakdowns (vs 71% on Edge) |
+| **Failing Precision** | 83.0% | 60.0% | Safety-first conservative alert strategy on imminent failure |
+
+```text
+Edge Model Confusion Matrix:
+[[212   7   0]   (Healthy: 212/219)
+ [  3  50   3]   (Degrading: 50/56)
+ [  0   6  15]]  (Failing: 15/21 - 6 missed faults)
+
+Cloud Model Confusion Matrix:
+[[219   0   0]   (Healthy: 219/219 - 100% flawless healthy recall)
+ [ 10  34  12]   (Degrading: 34/56)
+ [  0   3  18]]  (Failing: 18/21 - only 3 missed faults)
+```
+
+**Conformal Prediction Coverage (Uncertainty Quantification):**
+* **Target Coverage**: 95.0%
+* **Empirical Coverage**: **95.95%**
+* **Average Prediction Set Size**: **1.08 classes**
+* **Conformal Quantile Threshold ($q_{\text{hat}}$)**: 0.5874
 
 > [!NOTE]
-> **Resolution of the "Accuracy Paradox":** Raw accuracy on imbalanced industrial telemetry is dominated by the healthy majority class. Under asymmetric Neyman-Pearson risk matrices ($C_{\text{Missed Fault}} \gg C_{\text{False Alarm}}$), the Cloud model strictly dominates the Edge model on fault sensitivity (Recall).
+> **Precision-Recall Trade-off in Critical Infrastructure:** In industrial predictive maintenance, missing a catastrophic breakdown (Type II error / Low Recall on Failing) carries a severe operational penalty. The Cloud model prioritizes safety, detecting **86%** of failing bearings (compared to 71% for the Edge model) while maintaining **100%** recall on healthy operations.
 
 ### Phase 2: Local Environment Setup
 Ensure you have Python installed, and Hadoop `winutils` configured for Windows PySpark. 
@@ -88,33 +108,10 @@ python main.py
 * The Edge model detects distribution shift and begins offloading uncertain samples to the Cloud.
 * The **MAPE-K Controller** actively adjusts the threshold (e.g., `Threshold adjusted from 0.80 to 0.85`) to balance network ingestion capacity.
 
----
-
-## 📐 Theoretical Rigor & Academic Foundations
-
-This project addresses fundamental questions at the intersection of **Statistical Learning Theory**, **Selective Classification**, and **Autonomic Distributed Systems**:
-
-### 1. Selective Cascades & Asymmetric Risk (Chow 1970, Geifman & El-Yaniv 2017)
-In edge-cloud cascades, inference offloading is formulated as a selective classification problem with rejection function $g(x) \in \{0, 1\}$:
-$$R(f, g) = \frac{\mathbb{E}[\ell(f(X), Y) \cdot g(X)]}{\mathbb{E}[g(X)]}$$
-Rather than naively measuring overall accuracy, industrial edge architectures operate under asymmetric misclassification penalty matrices ($C_{FN} \gg C_{FP}$). The Cloud model provides superior recall on the low-support, high-risk degradation tails.
-
-### 2. Calibrated Uncertainty & Conformal Prediction (Guo et al. 2017, Vovk et al. 2005)
-Standard neural networks calibrated with cross-entropy produce overconfident softmax probabilities on out-of-distribution (OOD) data. To bridge this:
-* **Temperature Scaling ($T$)**: Post-hoc calibration softens logit dispersion: $p_i = \frac{e^{z_i / T}}{\sum_j e^{z_j / T}}$.
-* **Distance-Aware Penalties**: Variance tracking captures epistemic dispersion under impulsive bearing wear.
-* **Split-Conformal Prediction**: Generates finite-sample validity sets with distribution-free guarantees:
-  $$\mathbb{P}(Y_{n+1} \in \hat{C}(X_{n+1})) \ge 1 - \alpha$$
-  Samples with non-conformity score $s(x) > \hat{q}_{\text{conformal}}$ are deterministically offloaded.
-
-### 3. Autonomic Feedback as Constrained Risk Minimization (Kephart & Chess 2003)
-The MAPE-K loop acts as an online dual optimizer adjusting the decision threshold $\theta(t)$ to solve:
-$$\min_{\theta} \text{Cloud\_Bandwidth}(\theta) \quad \text{s.t.} \quad R(f, g_\theta) \le \epsilon_{\text{target}}, \quad \Phi(g_\theta) \le C_{\text{max}}$$
-This dynamically balances network ingestion latency against statistical edge risk under non-stationary physical wear.
-
 ## 🔬 Motivation: REGAIN-AI (DTU Compute)
 This research prototype directly mirrors the core mission of the **REGAIN-AI** initiative at DTU Compute: designing certifiable, resource-aware, and uncertainty-bounded AI systems for edge-cloud distributed infrastructures.
 
 ## 📜 License
 MIT License
+
 

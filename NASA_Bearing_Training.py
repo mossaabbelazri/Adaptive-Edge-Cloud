@@ -156,7 +156,7 @@ def train_model(model, name, epochs=100, use_scheduler=False, lr=0.005):
             print(f"Epoch {epoch+1}/{epochs} - Loss: {total_loss/len(train_loader):.4f}")
 
 train_model(edge_model, "Edge Model", epochs=100, lr=0.005)
-train_model(cloud_model, "Cloud Model", epochs=150, use_scheduler=True, lr=0.002) # Optimized Oracle
+train_model(cloud_model, "Cloud Model", epochs=150, use_scheduler=True, lr=0.002)
 
 # --- 5. Evaluation (Accuracy & Confusion Matrix) ---
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report

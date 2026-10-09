@@ -3,7 +3,7 @@ import torch.nn as nn
 
 class CloudModel(nn.Module):
     """
-    High-capacity neural network representing an Oracle model deployed in the cloud.
+    High-capacity neural network representing a heavy model deployed in the cloud.
     Equipped with BatchNorm1d and Dropout regularization to guarantee robust internal dynamics
     and superior generalization over non-stationary vibration telemetry.
     """
